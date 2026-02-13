@@ -42,8 +42,7 @@ func handleSetRatesCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts 
 	}
 
 	keyboard := b.RateSettingKeyboard(groupID)
-	b.EditMessage(callback.Message.Chat.ID, callback.Message.MessageID,
-		"برای تنظیم نرخ، یک نقش را انتخاب کنید:", keyboard)
+	b.EditMessage(callback.Message.Chat.ID, callback.Message.MessageID, "برای تنظیم نرخ، یک نقش را انتخاب کنید:", &keyboard)
 }
 
 func handleSetRateCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []string) {
@@ -194,7 +193,7 @@ func handleBackCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []st
 
 	keyboard := b.MainMenuKeyboard(user.ID, groupID, isAdmin)
 	b.EditMessage(callback.Message.Chat.ID, callback.Message.MessageID,
-		"منوی اصلی:", keyboard)
+		"منوی اصلی:", &keyboard)
 }
 
 // Group message handlers
@@ -261,40 +260,45 @@ func handleAttendanceCommand(b *bot.Bot, message *tgbotapi.Message) {
 	// Parse user IDs from command arguments
 	args := strings.Fields(message.CommandArguments())
 	if len(args) == 0 {
-		b.SendMessage(message.Chat.ID,
-			"لطفا آیدی کاربران را وارد کنید.\n"+
-				"مثال: /attendance 123456789 987654321", nil)
+		b.SendMessage(message.Chat.ID, "لطفا آیدی کاربران را وارد کنید.\n"+"مثال: /attendance @javad @ali @hasan @mohsen", nil)
 		return
 	}
 
 	var userIDs []int64
+	var userNames []string
 	for _, arg := range args {
-		id, err := strconv.ParseInt(arg, 10, 64)
-		if err != nil {
-			continue
-		}
-		userIDs = append(userIDs, id)
+		userName := strings.TrimPrefix(arg, "@")
+		userNames = append(userNames, userName)
 	}
 
-	if len(userIDs) == 0 {
+	if len(userNames) == 0 {
 		b.SendMessage(message.Chat.ID, "هیچ آیدی معتبری یافت نشد.", nil)
 		return
 	}
 
 	// Add sessions for each user
 	successCount := 0
-	for _, userID := range userIDs {
+	for _, userName := range userNames {
+		u, err := b.DB.GetUserByUserName(userName)
+		if err != nil {
+			log.Printf("Error getting user by username %s: %v", userName, err)
+			continue
+		}
+
 		// Check if user is member of this group
-		isMember, err := b.DB.IsUserMemberOfGroup(userID, group.ID)
+		isMember, err := b.DB.IsUserMemberOfGroup(u.ID, group.ID)
 		if err != nil || !isMember {
 			continue
 		}
 
-		err = b.DB.AddSessionsToUser(userID, group.ID, 1)
+		userIDs = append(userIDs, u.TelegramID)
+
+		err = b.DB.AddSessionsToUser(u.ID, group.ID, 1)
 		if err != nil {
-			log.Printf("Error adding session for user %d: %v", userID, err)
+			log.Printf("Error adding session for user %d: %v", u.TelegramID, err)
 			continue
 		}
+
 		successCount++
 	}
 
@@ -397,6 +401,7 @@ func handleRevertCommand(b *bot.Bot, message *tgbotapi.Message) {
 }
 
 func handleReportCommand(b *bot.Bot, message *tgbotapi.Message) {
+	fmt.Printf("Handling report command for group %d\n", message.Chat.ID)
 	// Check if sender is admin
 	user, err := b.DB.GetUserByTelegramID(message.From.ID)
 	if err != nil {
@@ -428,7 +433,7 @@ func handleReportCommand(b *bot.Bot, message *tgbotapi.Message) {
 	}
 
 	var reportLines []string
-	reportLines = append(reportLines, "📊 *گزارش بدهی‌ها*\n")
+	reportLines = append(reportLines, "📊 گزارش بدهی‌ها\n")
 
 	hasDebts := false
 	for _, ug := range userGroups {
@@ -444,7 +449,7 @@ func handleReportCommand(b *bot.Bot, message *tgbotapi.Message) {
 				continue
 			}
 
-			line := fmt.Sprintf("• %s - %d جلسه", telegramUsername, ug.SessionsOwed)
+			line := fmt.Sprintf("• %s  %d جلسه", telegramUsername, ug.SessionsOwed)
 			reportLines = append(reportLines, line)
 		}
 	}
@@ -455,5 +460,29 @@ func handleReportCommand(b *bot.Bot, message *tgbotapi.Message) {
 	}
 
 	report := strings.Join(reportLines, "\n")
-	b.SendMessageWithMarkdown(message.Chat.ID, report, nil)
+	b.SendMessageWithMarkdown(message.Chat.ID, escapeMarkdownV2(report), nil)
+}
+
+func escapeMarkdownV2(text string) string {
+	replacer := strings.NewReplacer(
+		"_", "\\_",
+		"*", "\\*",
+		"[", "\\[",
+		"]", "\\]",
+		"(", "\\(",
+		")", "\\)",
+		"~", "\\~",
+		"`", "\\`",
+		">", "\\>",
+		"#", "\\#",
+		"+", "\\+",
+		"-", "\\-",
+		"=", "\\=",
+		"|", "\\|",
+		"{", "\\{",
+		"}", "\\}",
+		".", "\\.",
+		"!", "\\!",
+	)
+	return replacer.Replace(text)
 }

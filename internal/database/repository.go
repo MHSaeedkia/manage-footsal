@@ -54,6 +54,25 @@ func (db *DB) GetUserByTelegramID(telegramID int64) (*models.User, error) {
 	return &user, nil
 }
 
+func (db *DB) GetUserByUserName(userName string) (*models.User, error) {
+	var user models.User
+
+	err := db.QueryRow(`
+		SELECT id, telegram_id, username, first_name, last_name, is_bot, created_at, updated_at
+		FROM users
+		WHERE username = $1
+	`, userName).Scan(
+		&user.ID, &user.TelegramID, &user.Username, &user.FirstName,
+		&user.LastName, &user.IsBot, &user.CreatedAt, &user.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 // Group operations
 func (db *DB) GetOrCreateGroup(telegramChatID int64, title, chatType string) (*models.Group, error) {
 	var group models.Group
