@@ -35,7 +35,6 @@ services:
       DB_NAME: ${DB_NAME}
       DB_SSLMODE: ${DB_SSLMODE}
       APP_PORT: ${APP_PORT}
-      REVERT_TIMEOUT_MINUTES: ${REVERT_TIMEOUT_MINUTES}
     ports:
       - "${APP_PORT:-8080}:8080"
     depends_on:

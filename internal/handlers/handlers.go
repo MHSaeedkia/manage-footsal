@@ -186,10 +186,6 @@ func handleSettleSessionsInput(b *bot.Bot, message *tgbotapi.Message, state *mod
 		return
 	}
 
-	if sessions > ug.SessionsOwed {
-		sessions = ug.SessionsOwed
-	}
-
 	err = b.DB.SettleSessions(userID, groupID, sessions)
 	if err != nil {
 		log.Printf("Error settling sessions: %v", err)
@@ -205,14 +201,33 @@ func handleSettleSessionsInput(b *bot.Bot, message *tgbotapi.Message, state *mod
 	rate, _ := b.DB.GetRate(groupID, ug.Role)
 	remainingDebt := float64(ug.SessionsOwed) * rate
 
-	text := fmt.Sprintf(
-		"✅ تسویه حساب انجام شد.\n\n"+
-			"کاربر: %s\n"+
-			"جلسات تسویه شده: %d\n"+
-			"جلسات باقیمانده: %d\n"+
-			"بدهی باقیمانده: %.0f تومان",
-		ug.Name, sessions, ug.SessionsOwed, remainingDebt,
-	)
+	var text string
+
+	if ug.SessionsOwed > 0 {
+		text = fmt.Sprintf(
+			"✅ تسویه حساب انجام شد.\n\n"+
+				"کاربر: %s\n"+
+				"جلسات تسویه شده: %d\n"+
+				"جلسات باقیمانده: %d\n"+
+				"بدهی باقیمانده: %.0f تومان",
+			ug.Name, sessions, ug.SessionsOwed, remainingDebt,
+		)
+	} else if ug.SessionsOwed < 0 {
+		text = fmt.Sprintf(
+			"✅ تسویه حساب انجام شد.\n\n"+
+				"کاربر: %s\n"+
+				"جلسات تسویه شده: %d\n"+
+				"جلسات طلب کار: %d\n",
+			ug.Name, sessions, ug.SessionsOwed*(-1),
+		)
+	} else {
+		text = fmt.Sprintf(
+			"✅ تسویه حساب انجام شد.\n\n"+
+				"کاربر: %s\n"+
+				"جلسات تسویه شده: %d"+
+				ug.Name, sessions,
+		)
+	}
 
 	b.SendMessage(message.Chat.ID, text, nil)
 }

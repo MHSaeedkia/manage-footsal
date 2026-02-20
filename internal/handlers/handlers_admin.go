@@ -1,17 +1,21 @@
 package handlers
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
-	"time"
 
 	"futsal-bot/internal/bot"
 	"futsal-bot/internal/models"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+)
+
+const (
+	userColWidth    = 15
+	separatorWidth  = 7
+	sessionColWidth = 15
 )
 
 func handleSetRatesCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []string) {
@@ -123,6 +127,16 @@ func handleSettleCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []
 			rows = append(rows, []tgbotapi.InlineKeyboardButton{
 				tgbotapi.NewInlineKeyboardButtonData(buttonText, buttonData),
 			})
+		} else if ug.SessionsOwed < 0 {
+			buttonText := fmt.Sprintf("%s - %d جلسه طلب کار", ug.Name, ug.SessionsOwed*(-1))
+			rows = append(rows, []tgbotapi.InlineKeyboardButton{
+				tgbotapi.NewInlineKeyboardButtonData(buttonText, "noop"),
+			})
+		} else {
+			buttonText := fmt.Sprintf("%s - تسویه", ug.Name)
+			rows = append(rows, []tgbotapi.InlineKeyboardButton{
+				tgbotapi.NewInlineKeyboardButtonData(buttonText, "noop"),
+			})
 		}
 	}
 
@@ -167,8 +181,7 @@ func handleSettleUserCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, part
 	}
 	b.SetState(callback.From.ID, "awaiting_settle_sessions", tempData)
 
-	b.EditMessage(callback.Message.Chat.ID, callback.Message.MessageID,
-		"تعداد جلساتی که تسویه شده را وارد کنید:", nil)
+	b.EditMessage(callback.Message.Chat.ID, callback.Message.MessageID, "تعداد جلساتی که تسویه شده را وارد کنید:", nil)
 }
 
 func handleBackCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []string) {
@@ -225,8 +238,6 @@ func HandleGroupMessage(b *bot.Bot, message *tgbotapi.Message) {
 		switch message.Command() {
 		case "attendance":
 			handleAttendanceCommand(b, message)
-		case "revert":
-			handleRevertCommand(b, message)
 		case "report":
 			handleReportCommand(b, message)
 		}
@@ -260,7 +271,7 @@ func handleAttendanceCommand(b *bot.Bot, message *tgbotapi.Message) {
 	// Parse user IDs from command arguments
 	args := strings.Fields(message.CommandArguments())
 	if len(args) == 0 {
-		b.SendMessage(message.Chat.ID, "لطفا آیدی کاربران را وارد کنید.\n"+"مثال: /attendance @javad @ali @hasan @mohsen", nil)
+		b.SendMessage(message.Chat.ID, "لطفا آیدی کاربران را وارد کنید.\n"+"مثال: /attendance @user1 @user2 @user3 @user4", nil)
 		return
 	}
 
@@ -302,102 +313,13 @@ func handleAttendanceCommand(b *bot.Bot, message *tgbotapi.Message) {
 		successCount++
 	}
 
-	// Create attendance record
-	recordID, err := b.DB.CreateAttendanceRecord(group.ID, user.ID, userIDs)
-	if err != nil {
-		log.Printf("Error creating attendance record: %v", err)
-	}
-
 	text := fmt.Sprintf(
 		"✅ حضور و غیاب ثبت شد.\n\n"+
-			"تعداد کاربران: %d\n"+
-			"شناسه رکورد: %d\n\n"+
-			"برای بازگشت از این رکورد، تا 1 ساعت آینده می‌توانید از دستور زیر استفاده کنید:\n"+
-			"/revert %d",
-		successCount, recordID, recordID,
+			"تعداد کاربران: %d\n",
+		successCount,
 	)
 
 	b.SendMessage(message.Chat.ID, text, nil)
-}
-
-func handleRevertCommand(b *bot.Bot, message *tgbotapi.Message) {
-	// Check if sender is admin
-	user, err := b.DB.GetUserByTelegramID(message.From.ID)
-	if err != nil {
-		b.SendMessage(message.Chat.ID, "خطا در دریافت اطلاعات کاربر.", nil)
-		return
-	}
-
-	group, err := b.DB.GetGroupByTelegramChatID(message.Chat.ID)
-	if err != nil {
-		b.SendMessage(message.Chat.ID, "این گروه در سیستم ثبت نشده است.", nil)
-		return
-	}
-
-	isAdmin := b.IsDefaultAdmin(message.From.ID)
-	if !isAdmin {
-		isAdmin, _ = b.DB.IsUserAdminInGroup(user.ID, group.ID)
-	}
-
-	if !isAdmin {
-		b.SendMessage(message.Chat.ID, "فقط ادمین‌ها می‌توانند رکورد را بازگردانی کنند.", nil)
-		return
-	}
-
-	// Parse record ID from command arguments
-	args := strings.Fields(message.CommandArguments())
-	if len(args) == 0 {
-		b.SendMessage(message.Chat.ID, "لطفا شناسه رکورد را وارد کنید.\nمثال: /revert 123", nil)
-		return
-	}
-
-	recordID, err := strconv.ParseInt(args[0], 10, 64)
-	if err != nil {
-		b.SendMessage(message.Chat.ID, "شناسه رکورد نامعتبر است.", nil)
-		return
-	}
-
-	// Get record
-	record, err := b.DB.GetAttendanceRecord(recordID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			b.SendMessage(message.Chat.ID, "رکورد مورد نظر یافت نشد.", nil)
-		} else {
-			b.SendMessage(message.Chat.ID, "خطا در دریافت رکورد.", nil)
-		}
-		return
-	}
-
-	// Check if record is already reverted
-	if record.IsReverted {
-		b.SendMessage(message.Chat.ID, "این رکورد قبلاً بازگردانی شده است.", nil)
-		return
-	}
-
-	// Check if record belongs to this group
-	if record.GroupID != group.ID {
-		b.SendMessage(message.Chat.ID, "این رکورد به این گروه تعلق ندارد.", nil)
-		return
-	}
-
-	// Check time limit (1 hour)
-	if time.Since(record.CreatedAt) > time.Hour {
-		b.SendMessage(message.Chat.ID,
-			"زمان بازگردانی این رکورد گذشته است. "+
-				"لطفا از طریق تسویه حساب دستی اقدام کنید.", nil)
-		return
-	}
-
-	// Revert the record
-	err = b.DB.RevertAttendanceRecord(recordID, record.UserIDs)
-	if err != nil {
-		log.Printf("Error reverting record: %v", err)
-		b.SendMessage(message.Chat.ID, "خطا در بازگردانی رکورد.", nil)
-		return
-	}
-
-	b.SendMessage(message.Chat.ID,
-		fmt.Sprintf("✅ رکورد %d با موفقیت بازگردانی شد.", recordID), nil)
 }
 
 func handleReportCommand(b *bot.Bot, message *tgbotapi.Message) {
@@ -433,25 +355,29 @@ func handleReportCommand(b *bot.Bot, message *tgbotapi.Message) {
 	}
 
 	var reportLines []string
-	reportLines = append(reportLines, "📊 گزارش بدهی‌ها\n")
-
+	reportLines = append(reportLines, "📊 گزارش بدهی‌ جلسات\n")
 	hasDebts := false
 	for _, ug := range userGroups {
-		if ug.SessionsOwed > 0 {
-			hasDebts = true
-			// Get user telegram ID
-			var telegramUsername string
-			err := b.DB.QueryRow(`
+		hasDebts = true
+		// Get user telegram ID
+		var telegramUsername, line string
+		err := b.DB.QueryRow(`
 				SELECT username FROM users WHERE id = $1
 			`, ug.UserID).Scan(&telegramUsername)
 
-			if err != nil {
-				continue
-			}
-
-			line := fmt.Sprintf("• %s  %d جلسه", telegramUsername, ug.SessionsOwed)
-			reportLines = append(reportLines, line)
+		if err != nil {
+			continue
 		}
+
+		if ug.SessionsOwed > 0 {
+			line = fmt.Sprintf("• %s = %d", telegramUsername, ug.SessionsOwed)
+		} else if ug.SessionsOwed < 0 {
+			line = fmt.Sprintf("• %s = %d ❤️", telegramUsername, ug.SessionsOwed)
+		} else {
+			line = fmt.Sprintf("• %s = %d ✅", telegramUsername, ug.SessionsOwed)
+		}
+
+		reportLines = append(reportLines, line)
 	}
 
 	if !hasDebts {
@@ -460,7 +386,7 @@ func handleReportCommand(b *bot.Bot, message *tgbotapi.Message) {
 	}
 
 	report := strings.Join(reportLines, "\n")
-	b.SendMessageWithMarkdown(message.Chat.ID, escapeMarkdownV2(report), nil)
+	b.SendMessageWithMarkdown(message.Chat.ID, report, nil)
 }
 
 func escapeMarkdownV2(text string) string {
@@ -485,4 +411,16 @@ func escapeMarkdownV2(text string) string {
 		"!", "\\!",
 	)
 	return replacer.Replace(text)
+}
+
+func center(text string, width int) string {
+	if len(text) >= width {
+		return text[:width]
+	}
+
+	padding := width - len(text)
+	left := padding / 2
+	right := padding - left
+
+	return strings.Repeat(" ", left) + text + strings.Repeat(" ", right)
 }

@@ -3,11 +3,8 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"time"
 
 	"futsal-bot/internal/models"
-
-	"github.com/lib/pq"
 )
 
 // User operations
@@ -289,115 +286,12 @@ func (db *DB) AddSessionsToUser(userID, groupID int64, sessions int) error {
 func (db *DB) SettleSessions(userID, groupID int64, sessions int) error {
 	_, err := db.Exec(`
 		UPDATE user_groups
-		SET sessions_owed = GREATEST(sessions_owed - $1, 0),
+		SET sessions_owed = (sessions_owed - $1),
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = $2 AND group_id = $3
 	`, sessions, userID, groupID)
 
 	return err
-}
-
-// Attendance record operations
-func (db *DB) CreateAttendanceRecord(groupID, adminID int64, userIDs []int64) (int64, error) {
-	var recordID int64
-	err := db.QueryRow(`
-		INSERT INTO attendance_records (group_id, admin_id, user_ids)
-		VALUES ($1, $2, $3)
-		RETURNING id
-	`, groupID, adminID, pq.Array(userIDs)).Scan(&recordID)
-
-	return recordID, err
-}
-
-func (db *DB) GetAttendanceRecord(recordID int64) (*models.AttendanceRecord, error) {
-	var record models.AttendanceRecord
-	var userIDs pq.Int64Array
-
-	err := db.QueryRow(`
-		SELECT id, group_id, admin_id, user_ids, created_at, reverted_at, is_reverted
-		FROM attendance_records
-		WHERE id = $1
-	`, recordID).Scan(
-		&record.ID, &record.GroupID, &record.AdminID, &userIDs,
-		&record.CreatedAt, &record.RevertedAt, &record.IsReverted,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	record.UserIDs = []int64(userIDs)
-	return &record, nil
-}
-
-func (db *DB) GetLatestAttendanceRecord(groupID int64) (*models.AttendanceRecord, error) {
-	var record models.AttendanceRecord
-	var userIDs pq.Int64Array
-
-	err := db.QueryRow(`
-		SELECT id, group_id, admin_id, user_ids, created_at, reverted_at, is_reverted
-		FROM attendance_records
-		WHERE group_id = $1 AND is_reverted = FALSE
-		ORDER BY created_at DESC
-		LIMIT 1
-	`, groupID).Scan(
-		&record.ID, &record.GroupID, &record.AdminID, &userIDs,
-		&record.CreatedAt, &record.RevertedAt, &record.IsReverted,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	record.UserIDs = []int64(userIDs)
-	return &record, nil
-}
-
-func (db *DB) RevertAttendanceRecord(recordID int64, userIDs []int64) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Get the attendance record
-	var groupID int64
-	var existingUserIDs pq.Int64Array
-	err = tx.QueryRow(`
-		SELECT group_id, user_ids FROM attendance_records WHERE id = $1 AND is_reverted = FALSE
-	`, recordID).Scan(&groupID, &existingUserIDs)
-
-	if err != nil {
-		return err
-	}
-
-	// Revert sessions for each user
-	for _, userID := range existingUserIDs {
-		_, err = tx.Exec(`
-			UPDATE user_groups
-			SET sessions_owed = GREATEST(sessions_owed - 1, 0),
-			    updated_at = CURRENT_TIMESTAMP
-			WHERE user_id = $1 AND group_id = $2
-		`, userID, groupID)
-
-		if err != nil {
-			return err
-		}
-	}
-
-	// Mark as reverted
-	now := time.Now()
-	_, err = tx.Exec(`
-		UPDATE attendance_records
-		SET is_reverted = TRUE, reverted_at = $1
-		WHERE id = $2
-	`, now, recordID)
-
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
 }
 
 func (db *DB) GetAllGroups() ([]models.Group, error) {
