@@ -14,9 +14,9 @@ import (
 )
 
 func main() {
-	// Load environment variables
+	// Load .env if present (optional when running in Docker — env is set by compose)
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
+		log.Printf("No .env file in container, using environment variables (normal when using docker-compose)\n")
 	}
 
 	// Get configuration from environment
