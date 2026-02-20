@@ -35,6 +35,9 @@ services:
       DB_NAME: ${DB_NAME}
       DB_SSLMODE: ${DB_SSLMODE}
       APP_PORT: ${APP_PORT}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_OUTPUT: ${LOG_OUTPUT:-stdout}
     ports:
       - "${APP_PORT:-8080}:8080"
     depends_on:

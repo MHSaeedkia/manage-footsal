@@ -1,38 +1,49 @@
 package main
 
 import (
-	"log"
 	"os"
 	"strconv"
 
 	"futsal-bot/internal/bot"
 	"futsal-bot/internal/database"
 	"futsal-bot/internal/handlers"
+	"futsal-bot/pkg/logger"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
 func main() {
-	// Load .env if present (optional when running in Docker — env is set by compose)
-	if err := godotenv.Load(); err != nil {
-		log.Printf("No .env file in container, using environment variables (normal when using docker-compose)\n")
-	}
+	_ = godotenv.Load()
 
-	// Get configuration from environment
+	// Logger config from env (LOG_LEVEL, LOG_FORMAT, LOG_OUTPUT)
+	loggerConfig := &logger.Config{
+		Level:  getEnv("LOG_LEVEL", "info"),
+		Format: getEnv("LOG_FORMAT", "json"),
+		Output: getEnv("LOG_OUTPUT", "stdout"),
+	}
+	zapLogger, err := logger.New(loggerConfig, logger.DefaultServiceName)
+	if err != nil {
+		_, _ = os.Stderr.WriteString("failed to init logger: " + err.Error() + "\n")
+		os.Exit(1)
+	}
+	defer func() { _ = zapLogger.Sync() }()
+	zap.ReplaceGlobals(zapLogger)
+
 	botToken := os.Getenv("BOT_TOKEN")
 	if botToken == "" {
-		log.Fatal("BOT_TOKEN is required")
+		zap.L().Fatal("BOT_TOKEN is required")
 	}
 
 	defaultAdminIDStr := os.Getenv("DEFAULT_ADMIN_ID")
 	if defaultAdminIDStr == "" {
-		log.Fatal("DEFAULT_ADMIN_ID is required")
+		zap.L().Fatal("DEFAULT_ADMIN_ID is required")
 	}
 
 	defaultAdminID, err := strconv.ParseInt(defaultAdminIDStr, 10, 64)
 	if err != nil {
-		log.Fatalf("Invalid DEFAULT_ADMIN_ID: %v", err)
+		zap.L().Fatal("Invalid DEFAULT_ADMIN_ID", zap.Error(err))
 	}
 
 	dbConfig := database.Config{
@@ -44,37 +55,31 @@ func main() {
 		SSLMode:  os.Getenv("DB_SSLMODE"),
 	}
 
-	// Initialize database
 	db, err := database.New(dbConfig)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		zap.L().Fatal("Failed to connect to database", zap.Error(err))
 	}
 	defer db.Close()
 
-	log.Println("Running database migrations...")
+	zap.L().Info("Running database migrations...")
 	if err := db.RunMigrations(); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
+		zap.L().Fatal("Failed to run migrations", zap.Error(err))
 	}
 
-	// Initialize bot
 	b, err := bot.New(botToken, db, defaultAdminID)
 	if err != nil {
-		log.Fatalf("Failed to create bot: %v", err)
+		zap.L().Fatal("Failed to create bot", zap.Error(err))
 	}
 
-	log.Println("Bot started successfully!")
+	zap.L().Info("Bot started successfully")
 
-	// Start receiving updates
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-
 	updates := b.API.GetUpdatesChan(u)
 
 	for update := range updates {
 		if update.Message != nil {
-			// Handle regular messages
 			if update.Message.Chat.IsPrivate() {
-				// Private chat
 				if update.Message.IsCommand() {
 					switch update.Message.Command() {
 					case "start":
@@ -84,16 +89,20 @@ func main() {
 							"دستور نامعتبر. از /start استفاده کنید.", nil)
 					}
 				} else {
-					// Handle text messages (for state-based flows)
 					handlers.HandleMessage(b, update.Message)
 				}
 			} else {
-				// Group chat
 				handlers.HandleGroupMessage(b, update.Message)
 			}
 		} else if update.CallbackQuery != nil {
-			// Handle callback queries
 			handlers.HandleCallbackQuery(b, update.CallbackQuery)
 		}
 	}
+}
+
+func getEnv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

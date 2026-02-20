@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
@@ -10,6 +9,7 @@ import (
 	"futsal-bot/internal/models"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"go.uber.org/zap"
 )
 
 func HandleStart(b *bot.Bot, message *tgbotapi.Message) {
@@ -26,7 +26,7 @@ func HandleStart(b *bot.Bot, message *tgbotapi.Message) {
 	)
 
 	if err != nil {
-		log.Printf("Error getting/creating user: %v", err)
+		zap.L().Error("Error getting/creating user", zap.Error(err), zap.Int64("chat_id", chatID))
 		b.SendMessage(chatID, "خطا در ثبت اطلاعات کاربر. لطفا دوباره تلاش کنید.", nil)
 		return
 	}
@@ -37,7 +37,7 @@ func HandleStart(b *bot.Bot, message *tgbotapi.Message) {
 	// Get all groups where bot is member
 	allGroups, err := b.DB.GetAllGroups()
 	if err != nil {
-		log.Printf("Error getting groups: %v", err)
+		zap.L().Error("Error getting groups", zap.Error(err))
 	}
 
 	if len(allGroups) == 0 && !isDefaultAdmin {
@@ -113,7 +113,7 @@ func handleNameInput(b *bot.Bot, message *tgbotapi.Message, state *models.UserSt
 	)
 
 	if err != nil {
-		log.Printf("Error getting/creating user: %v", err)
+		zap.L().Error("Error getting/creating user", zap.Error(err), zap.Int64("chat_id", message.Chat.ID))
 		b.SendMessage(message.Chat.ID, "خطا در ثبت اطلاعات. لطفا دوباره تلاش کنید.", nil)
 		b.ClearState(message.From.ID)
 		return
@@ -147,7 +147,7 @@ func handleRateInput(b *bot.Bot, message *tgbotapi.Message, state *models.UserSt
 
 	err = b.DB.SetRate(groupID, role, rate)
 	if err != nil {
-		log.Printf("Error setting rate: %v", err)
+		zap.L().Error("Error setting rate", zap.Error(err), zap.Int64("group_id", groupID))
 		b.SendMessage(message.Chat.ID, "خطا در ثبت نرخ. لطفا دوباره تلاش کنید.", nil)
 		b.ClearState(message.From.ID)
 		return
@@ -180,7 +180,7 @@ func handleSettleSessionsInput(b *bot.Bot, message *tgbotapi.Message, state *mod
 	// Get user group info
 	ug, err := b.DB.GetUserGroup(userID, groupID)
 	if err != nil {
-		log.Printf("Error getting user group: %v", err)
+		zap.L().Error("Error getting user group", zap.Error(err), zap.Int64("user_id", userID), zap.Int64("group_id", groupID))
 		b.SendMessage(message.Chat.ID, "خطا در دریافت اطلاعات کاربر.", nil)
 		b.ClearState(message.From.ID)
 		return
@@ -188,7 +188,7 @@ func handleSettleSessionsInput(b *bot.Bot, message *tgbotapi.Message, state *mod
 
 	err = b.DB.SettleSessions(userID, groupID, sessions)
 	if err != nil {
-		log.Printf("Error settling sessions: %v", err)
+		zap.L().Error("Error settling sessions", zap.Error(err), zap.Int64("user_id", userID), zap.Int64("group_id", groupID))
 		b.SendMessage(message.Chat.ID, "خطا در تسویه حساب.", nil)
 		b.ClearState(message.From.ID)
 		return
@@ -333,7 +333,7 @@ func handleRoleCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []st
 	// Save user group
 	err = b.DB.CreateOrUpdateUserGroup(userID, groupID, role, name)
 	if err != nil {
-		log.Printf("Error creating/updating user group: %v", err)
+		zap.L().Error("Error creating/updating user group", zap.Error(err), zap.Int64("user_id", userID), zap.Int64("group_id", groupID))
 		b.SendMessage(callback.Message.Chat.ID, "خطا در ثبت اطلاعات.", nil)
 		b.ClearState(callback.From.ID)
 		return

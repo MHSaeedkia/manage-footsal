@@ -3,11 +3,11 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 
 	_ "github.com/lib/pq"
 	"github.com/pressly/goose/v3"
+	"go.uber.org/zap"
 )
 
 type DB struct {
@@ -38,7 +38,7 @@ func New(cfg Config) (*DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	log.Println("Database connection established successfully")
+	zap.L().Info("Database connection established successfully")
 
 	return &DB{db}, nil
 }
@@ -57,13 +57,13 @@ func (db *DB) RunMigrations() error {
 		migrationsDir = "/app/migrations"
 	}
 
-	log.Printf("Using migrations directory: %s", migrationsDir)
+	zap.L().Info("Using migrations directory", zap.String("dir", migrationsDir))
 
 	if err := goose.Up(db.DB, migrationsDir); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	log.Println("Database migrations completed successfully")
+	zap.L().Info("Database migrations completed successfully")
 	return nil
 }
 

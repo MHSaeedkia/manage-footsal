@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"futsal-bot/internal/database"
 	"futsal-bot/internal/models"
-	"log"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"go.uber.org/zap"
 )
 
 type Bot struct {
@@ -25,7 +25,7 @@ func New(token string, db *database.DB, defaultAdminID int64) (*Bot, error) {
 		return nil, fmt.Errorf("failed to create bot: %w", err)
 	}
 
-	log.Printf("Authorized on account %s", api.Self.UserName)
+	zap.L().Info("Authorized on account", zap.String("username", api.Self.UserName))
 
 	return &Bot{
 		API:            api,

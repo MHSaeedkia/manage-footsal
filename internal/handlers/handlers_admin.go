@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
@@ -10,6 +9,7 @@ import (
 	"futsal-bot/internal/models"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"go.uber.org/zap"
 )
 
 const (
@@ -222,7 +222,7 @@ func HandleGroupMessage(b *bot.Bot, message *tgbotapi.Message) {
 					message.Chat.Type,
 				)
 				if err != nil {
-					log.Printf("Error creating group: %v", err)
+					zap.L().Error("Error creating group", zap.Error(err), zap.Int64("chat_id", message.Chat.ID))
 				} else {
 					b.SendMessage(message.Chat.ID,
 						"سلام! من ربات مدیریت فوتسال هستم. "+
@@ -292,7 +292,7 @@ func handleAttendanceCommand(b *bot.Bot, message *tgbotapi.Message) {
 	for _, userName := range userNames {
 		u, err := b.DB.GetUserByUserName(userName)
 		if err != nil {
-			log.Printf("Error getting user by username %s: %v", userName, err)
+			zap.L().Error("Error getting user by username", zap.String("username", userName), zap.Error(err))
 			continue
 		}
 
@@ -306,7 +306,7 @@ func handleAttendanceCommand(b *bot.Bot, message *tgbotapi.Message) {
 
 		err = b.DB.AddSessionsToUser(u.ID, group.ID, 1)
 		if err != nil {
-			log.Printf("Error adding session for user %d: %v", u.TelegramID, err)
+			zap.L().Error("Error adding session for user", zap.Int64("telegram_id", u.TelegramID), zap.Error(err))
 			continue
 		}
 
@@ -323,7 +323,7 @@ func handleAttendanceCommand(b *bot.Bot, message *tgbotapi.Message) {
 }
 
 func handleReportCommand(b *bot.Bot, message *tgbotapi.Message) {
-	fmt.Printf("Handling report command for group %d\n", message.Chat.ID)
+	zap.L().Info("Handling report command", zap.Int64("chat_id", message.Chat.ID))
 	// Check if sender is admin
 	user, err := b.DB.GetUserByTelegramID(message.From.ID)
 	if err != nil {
