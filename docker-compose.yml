@@ -26,6 +26,7 @@ services:
     container_name: futsal-bot
     restart: unless-stopped
     environment:
+      PLATFORM: ${PLATFORM:-bale}
       BOT_TOKEN: ${BOT_TOKEN}
       DEFAULT_ADMIN_ID: ${DEFAULT_ADMIN_ID}
       DB_HOST: ${DB_HOST}

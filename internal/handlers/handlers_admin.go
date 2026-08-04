@@ -271,28 +271,31 @@ func handleAttendanceCommand(b *bot.Bot, message *tgbotapi.Message) {
 	// Parse user IDs from command arguments
 	args := strings.Fields(message.CommandArguments())
 	if len(args) == 0 {
-		b.SendMessage(message.Chat.ID, "لطفا آیدی کاربران را وارد کنید.\n"+"مثال: /attendance @user1 @user2 @user3 @user4", nil)
+		b.SendMessage(message.Chat.ID, "لطفا آیدی عددی کاربران را وارد کنید.\n"+"مثال: /attendance 123456789 987654321", nil)
 		return
 	}
 
 	var userIDs []int64
-	var userNames []string
 	for _, arg := range args {
-		userName := strings.TrimPrefix(arg, "@")
-		userNames = append(userNames, userName)
+		userID, err := strconv.ParseInt(arg, 10, 64)
+		if err != nil {
+			zap.L().Warn("Invalid user ID argument", zap.String("arg", arg), zap.Error(err))
+			continue
+		}
+		userIDs = append(userIDs, userID)
 	}
 
-	if len(userNames) == 0 {
+	if len(userIDs) == 0 {
 		b.SendMessage(message.Chat.ID, "هیچ آیدی معتبری یافت نشد.", nil)
 		return
 	}
 
 	// Add sessions for each user
 	successCount := 0
-	for _, userName := range userNames {
-		u, err := b.DB.GetUserByUserName(userName)
+	for _, userID := range userIDs {
+		u, err := b.DB.GetUserByTelegramID(userID)
 		if err != nil {
-			zap.L().Error("Error getting user by username", zap.String("username", userName), zap.Error(err))
+			zap.L().Error("Error getting user by id", zap.Int64("telegram_id", userID), zap.Error(err))
 			continue
 		}
 
@@ -301,8 +304,6 @@ func handleAttendanceCommand(b *bot.Bot, message *tgbotapi.Message) {
 		if err != nil || !isMember {
 			continue
 		}
-
-		userIDs = append(userIDs, u.TelegramID)
 
 		err = b.DB.AddSessionsToUser(u.ID, group.ID, 1)
 		if err != nil {
@@ -359,22 +360,14 @@ func handleReportCommand(b *bot.Bot, message *tgbotapi.Message) {
 	hasDebts := false
 	for _, ug := range userGroups {
 		hasDebts = true
-		// Get user telegram ID
-		var telegramUsername, line string
-		err := b.DB.QueryRow(`
-				SELECT username FROM users WHERE id = $1
-			`, ug.UserID).Scan(&telegramUsername)
-
-		if err != nil {
-			continue
-		}
+		var line string
 
 		if ug.SessionsOwed > 0 {
-			line = fmt.Sprintf("• %s = %d", telegramUsername, ug.SessionsOwed)
+			line = fmt.Sprintf("• %s = %d", ug.Name, ug.SessionsOwed)
 		} else if ug.SessionsOwed < 0 {
-			line = fmt.Sprintf("• %s = %d ❤️", telegramUsername, ug.SessionsOwed)
+			line = fmt.Sprintf("• %s = %d ❤️", ug.Name, ug.SessionsOwed)
 		} else {
-			line = fmt.Sprintf("• %s = %d ✅", telegramUsername, ug.SessionsOwed)
+			line = fmt.Sprintf("• %s = %d ✅", ug.Name, ug.SessionsOwed)
 		}
 
 		reportLines = append(reportLines, line)

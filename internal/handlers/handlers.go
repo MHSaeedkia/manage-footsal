@@ -87,6 +87,12 @@ func HandleMessage(b *bot.Bot, message *tgbotapi.Message) {
 		handleRateInput(b, message, state)
 	case "awaiting_settle_sessions":
 		handleSettleSessionsInput(b, message, state)
+	case "awaiting_event_month":
+		handleEventMonthInput(b, message, state)
+	case "awaiting_event_date":
+		handleEventDateInput(b, message, state)
+	case "awaiting_event_capacity":
+		handleEventCapacityInput(b, message, state)
 	default:
 		b.ClearState(message.From.ID)
 	}
@@ -224,8 +230,8 @@ func handleSettleSessionsInput(b *bot.Bot, message *tgbotapi.Message, state *mod
 		text = fmt.Sprintf(
 			"✅ تسویه حساب انجام شد.\n\n"+
 				"کاربر: %s\n"+
-				"جلسات تسویه شده: %d"+
-				ug.Name, sessions,
+				"جلسات تسویه شده: %d",
+			ug.Name, sessions,
 		)
 	}
 
@@ -261,6 +267,16 @@ func HandleCallbackQuery(b *bot.Bot, callback *tgbotapi.CallbackQuery) {
 		handleSettleCallback(b, callback, parts)
 	case "settle_user":
 		handleSettleUserCallback(b, callback, parts)
+	case "new_event":
+		handleNewEventCallback(b, callback, parts)
+	case "rsvp":
+		handleRSVPCallback(b, callback, parts)
+	case "close_event":
+		handleCloseEventCallback(b, callback, parts)
+	case "do_close":
+		handleDoCloseEventCallback(b, callback, parts)
+	case "bill_all":
+		handleBillAllCallback(b, callback, parts)
 	case "back":
 		handleBackCallback(b, callback, parts)
 	}
@@ -375,25 +391,8 @@ func handleInvoiceCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts [
 	}
 
 	rate, _ := b.DB.GetRate(groupID, ug.Role)
-	totalDebt := float64(ug.SessionsOwed) * rate
 
-	roleNames := map[models.UserRole]string{
-		models.RoleAdmin:     "ادمین",
-		models.RoleStudent:   "دانشجو",
-		models.RoleAdult:     "بزرگسال",
-		models.RoleHalfAdult: "نیمه بزرگسال",
-	}
-
-	text := fmt.Sprintf(
-		"💰 *صورتحساب*\n\n"+
-			"نام: %s\n"+
-			"نقش: %s\n"+
-			"تعداد جلسات: %d\n"+
-			"نرخ هر جلسه: %.0f تومان\n"+
-			"مجموع بدهی: %.0f تومان",
-		ug.Name, roleNames[ug.Role], ug.SessionsOwed, rate, totalDebt,
-	)
-
-	b.SendMessageWithMarkdown(callback.Message.Chat.ID, text, nil)
+	b.SendMessageWithMarkdown(callback.Message.Chat.ID,
+		buildInvoiceText(ug.Name, ug.Role, ug.SessionsOwed, rate), nil)
 	b.AnswerCallbackQuery(callback.ID, "")
 }

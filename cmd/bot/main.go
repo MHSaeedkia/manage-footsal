@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"strconv"
+	"strings"
 
 	"futsal-bot/internal/bot"
 	"futsal-bot/internal/database"
@@ -36,6 +37,11 @@ func main() {
 		zap.L().Fatal("BOT_TOKEN is required")
 	}
 
+	platform := strings.ToLower(strings.TrimSpace(getEnv("PLATFORM", bot.PlatformBale)))
+	if _, err := bot.APIEndpointFor(platform); err != nil {
+		zap.L().Fatal("Invalid PLATFORM", zap.Error(err))
+	}
+
 	defaultAdminIDStr := os.Getenv("DEFAULT_ADMIN_ID")
 	if defaultAdminIDStr == "" {
 		zap.L().Fatal("DEFAULT_ADMIN_ID is required")
@@ -66,7 +72,7 @@ func main() {
 		zap.L().Fatal("Failed to run migrations", zap.Error(err))
 	}
 
-	b, err := bot.New(botToken, db, defaultAdminID)
+	b, err := bot.New(botToken, platform, db, defaultAdminID)
 	if err != nil {
 		zap.L().Fatal("Failed to create bot", zap.Error(err))
 	}

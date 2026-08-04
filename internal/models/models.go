@@ -61,6 +61,52 @@ type AttendanceRecord struct {
 	IsReverted bool       `db:"is_reverted"`
 }
 
+// GroupMember is a registered member of a group, joined with the ids needed to
+// message them directly.
+type GroupMember struct {
+	UserID       int64
+	TelegramID   int64
+	Name         string
+	Role         UserRole
+	SessionsOwed int
+}
+
+type EventResponseType string
+
+const (
+	ResponsePresent EventResponseType = "present"
+	ResponseAbsent  EventResponseType = "absent"
+)
+
+type Event struct {
+	ID             int64     `db:"id"`
+	GroupID        int64     `db:"group_id"`
+	CreatedBy      int64     `db:"created_by"`
+	Month          string    `db:"month"`
+	SessionDate    string    `db:"session_date"`
+	Capacity       int       `db:"capacity"`
+	GroupMessageID int       `db:"group_message_id"`
+	IsClosed       bool      `db:"is_closed"`
+	CreatedAt      time.Time `db:"created_at"`
+	UpdatedAt      time.Time `db:"updated_at"`
+}
+
+type EventResponse struct {
+	ID        int64             `db:"id"`
+	EventID   int64             `db:"event_id"`
+	UserID    int64             `db:"user_id"`
+	Response  EventResponseType `db:"response"`
+	CreatedAt time.Time         `db:"created_at"`
+	UpdatedAt time.Time         `db:"updated_at"`
+}
+
+// EventAnswer is one person's answer joined with the name they registered with.
+type EventAnswer struct {
+	UserID   int64
+	Name     string
+	Response EventResponseType
+}
+
 type UserState struct {
 	UserID      int64
 	State       string

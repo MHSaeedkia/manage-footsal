@@ -10,27 +10,56 @@ import (
 	"go.uber.org/zap"
 )
 
+// Supported platforms. Both speak the Telegram Bot API, they only differ in the
+// host the requests go to.
+const (
+	PlatformBale     = "bale"
+	PlatformTelegram = "telegram"
+)
+
+const baleAPIEndpoint = "https://tapi.bale.ai/bot%s/%s"
+
 type Bot struct {
 	API            *tgbotapi.BotAPI
 	DB             *database.DB
 	DefaultAdminID int64
+	Platform       string
 	States         map[int64]*models.UserState
 	StatesMutex    sync.RWMutex
 }
 
-func New(token string, db *database.DB, defaultAdminID int64) (*Bot, error) {
-	// api, err := tgbotapi.NewBotAPI(token)
-	api, err := tgbotapi.NewBotAPIWithAPIEndpoint(token, "https://tapi.bale.ai/bot%s/%s")
+// APIEndpointFor returns the API host for a platform name.
+func APIEndpointFor(platform string) (string, error) {
+	switch platform {
+	case PlatformBale:
+		return baleAPIEndpoint, nil
+	case PlatformTelegram:
+		return tgbotapi.APIEndpoint, nil
+	default:
+		return "", fmt.Errorf("unknown platform %q (use %q or %q)", platform, PlatformBale, PlatformTelegram)
+	}
+}
+
+func New(token, platform string, db *database.DB, defaultAdminID int64) (*Bot, error) {
+	endpoint, err := APIEndpointFor(platform)
+	if err != nil {
+		return nil, err
+	}
+
+	api, err := tgbotapi.NewBotAPIWithAPIEndpoint(token, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bot: %w", err)
 	}
 
-	zap.L().Info("Authorized on account", zap.String("username", api.Self.UserName))
+	zap.L().Info("Authorized on account",
+		zap.String("username", api.Self.UserName),
+		zap.String("platform", platform))
 
 	return &Bot{
 		API:            api,
 		DB:             db,
 		DefaultAdminID: defaultAdminID,
+		Platform:       platform,
 		States:         make(map[int64]*models.UserState),
 	}, nil
 }
@@ -85,6 +114,29 @@ func (b *Bot) SendMessageWithMarkdown(chatID int64, text string, replyMarkup int
 	return err
 }
 
+// SendMarkdownMessage is like SendMessageWithMarkdown but returns the sent
+// message, so the caller can keep its ID and edit it later.
+func (b *Bot) SendMarkdownMessage(chatID int64, text string, replyMarkup interface{}) (tgbotapi.Message, error) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	if replyMarkup != nil {
+		msg.ReplyMarkup = replyMarkup
+	}
+
+	return b.API.Send(msg)
+}
+
+func (b *Bot) EditMessageWithMarkdown(chatID int64, messageID int, text string, replyMarkup interface{}) error {
+	msg := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	msg.ParseMode = "Markdown"
+	if markup, ok := replyMarkup.(*tgbotapi.InlineKeyboardMarkup); ok {
+		msg.ReplyMarkup = markup
+	}
+
+	_, err := b.API.Send(msg)
+	return err
+}
+
 func (b *Bot) EditMessage(chatID int64, messageID int, text string, replyMarkup interface{}) error {
 	msg := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	if replyMarkup != nil {
@@ -132,9 +184,28 @@ func (b *Bot) MainMenuKeyboard(userID, groupID int64, isAdmin bool) tgbotapi.Inl
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData("✅ تسویه حساب کاربر", fmt.Sprintf("settle:%d", groupID)),
 		})
+		rows = append(rows, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("🏟 ایجاد سانس", fmt.Sprintf("new_event:%d", groupID)),
+		})
+		rows = append(rows, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("🔒 بستن سانس", fmt.Sprintf("close_event:%d", groupID)),
+		})
+		rows = append(rows, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("📤 ارسال صورتحساب به همه", fmt.Sprintf("bill_all:%d", groupID)),
+		})
 	}
 
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+// EventResponseKeyboard is the two buttons each member gets in their private chat.
+func (b *Bot) EventResponseKeyboard(eventID int64) tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ میام", fmt.Sprintf("rsvp:present:%d", eventID)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ نمیام", fmt.Sprintf("rsvp:absent:%d", eventID)),
+		),
+	)
 }
 
 func (b *Bot) RoleSelectionKeyboard(groupID int64, isAdmin bool) tgbotapi.InlineKeyboardMarkup {

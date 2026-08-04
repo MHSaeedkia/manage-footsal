@@ -51,25 +51,6 @@ func (db *DB) GetUserByTelegramID(telegramID int64) (*models.User, error) {
 	return &user, nil
 }
 
-func (db *DB) GetUserByUserName(userName string) (*models.User, error) {
-	var user models.User
-
-	err := db.QueryRow(`
-		SELECT id, telegram_id, username, first_name, last_name, is_bot, created_at, updated_at
-		FROM users
-		WHERE username = $1
-	`, userName).Scan(
-		&user.ID, &user.TelegramID, &user.Username, &user.FirstName,
-		&user.LastName, &user.IsBot, &user.CreatedAt, &user.UpdatedAt,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &user, nil
-}
-
 // Group operations
 func (db *DB) GetOrCreateGroup(telegramChatID int64, title, chatType string) (*models.Group, error) {
 	var group models.Group
@@ -292,6 +273,214 @@ func (db *DB) SettleSessions(userID, groupID int64, sessions int) error {
 	`, sessions, userID, groupID)
 
 	return err
+}
+
+// Event operations
+func (db *DB) CreateEvent(groupID, createdBy int64, month, sessionDate string, capacity int) (*models.Event, error) {
+	var e models.Event
+
+	err := db.QueryRow(`
+		INSERT INTO events (group_id, created_by, month, session_date, capacity)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, group_id, created_by, month, session_date, capacity, is_closed, created_at, updated_at
+	`, groupID, createdBy, month, sessionDate, capacity).Scan(
+		&e.ID, &e.GroupID, &e.CreatedBy, &e.Month, &e.SessionDate,
+		&e.Capacity, &e.IsClosed, &e.CreatedAt, &e.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create event: %w", err)
+	}
+
+	return &e, nil
+}
+
+func (db *DB) SetEventGroupMessageID(eventID int64, messageID int) error {
+	_, err := db.Exec(`
+		UPDATE events
+		SET group_message_id = $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2
+	`, messageID, eventID)
+
+	return err
+}
+
+func (db *DB) GetEventByID(eventID int64) (*models.Event, error) {
+	var e models.Event
+	var groupMessageID sql.NullInt64
+
+	err := db.QueryRow(`
+		SELECT id, group_id, created_by, month, session_date, capacity,
+		       group_message_id, is_closed, created_at, updated_at
+		FROM events
+		WHERE id = $1
+	`, eventID).Scan(
+		&e.ID, &e.GroupID, &e.CreatedBy, &e.Month, &e.SessionDate, &e.Capacity,
+		&groupMessageID, &e.IsClosed, &e.CreatedAt, &e.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	e.GroupMessageID = int(groupMessageID.Int64)
+
+	return &e, nil
+}
+
+func (db *DB) GetOpenEvents(groupID int64) ([]models.Event, error) {
+	rows, err := db.Query(`
+		SELECT id, group_id, created_by, month, session_date, capacity,
+		       group_message_id, is_closed, created_at, updated_at
+		FROM events
+		WHERE group_id = $1 AND is_closed = FALSE
+		ORDER BY created_at DESC
+	`, groupID)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []models.Event
+	for rows.Next() {
+		var e models.Event
+		var groupMessageID sql.NullInt64
+
+		err := rows.Scan(
+			&e.ID, &e.GroupID, &e.CreatedBy, &e.Month, &e.SessionDate, &e.Capacity,
+			&groupMessageID, &e.IsClosed, &e.CreatedAt, &e.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		e.GroupMessageID = int(groupMessageID.Int64)
+		events = append(events, e)
+	}
+
+	return events, nil
+}
+
+func (db *DB) CloseEvent(eventID int64) error {
+	_, err := db.Exec(`
+		UPDATE events
+		SET is_closed = TRUE, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, eventID)
+
+	return err
+}
+
+// GetEventResponse returns nil (with a nil error) when the user has not answered yet.
+func (db *DB) GetEventResponse(eventID, userID int64) (*models.EventResponse, error) {
+	var r models.EventResponse
+
+	err := db.QueryRow(`
+		SELECT id, event_id, user_id, response, created_at, updated_at
+		FROM event_responses
+		WHERE event_id = $1 AND user_id = $2
+	`, eventID, userID).Scan(
+		&r.ID, &r.EventID, &r.UserID, &r.Response, &r.CreatedAt, &r.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &r, nil
+}
+
+func (db *DB) SetEventResponse(eventID, userID int64, response models.EventResponseType) error {
+	_, err := db.Exec(`
+		INSERT INTO event_responses (event_id, user_id, response)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (event_id, user_id) DO UPDATE
+		SET response = EXCLUDED.response,
+		    updated_at = CURRENT_TIMESTAMP
+	`, eventID, userID, response)
+
+	return err
+}
+
+// GetEventAnswers returns every answer for an event, oldest first, joined with the
+// name each person registered with in that event's group.
+func (db *DB) GetEventAnswers(eventID int64) ([]models.EventAnswer, error) {
+	rows, err := db.Query(`
+		SELECT er.user_id, ug.name, er.response
+		FROM event_responses er
+		JOIN events e ON e.id = er.event_id
+		JOIN user_groups ug ON ug.user_id = er.user_id AND ug.group_id = e.group_id
+		WHERE er.event_id = $1
+		ORDER BY er.created_at
+	`, eventID)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var answers []models.EventAnswer
+	for rows.Next() {
+		var a models.EventAnswer
+		if err := rows.Scan(&a.UserID, &a.Name, &a.Response); err != nil {
+			return nil, err
+		}
+		answers = append(answers, a)
+	}
+
+	return answers, nil
+}
+
+func (db *DB) GetGroupByID(groupID int64) (*models.Group, error) {
+	var group models.Group
+
+	err := db.QueryRow(`
+		SELECT id, telegram_chat_id, title, type, created_at, updated_at
+		FROM groups
+		WHERE id = $1
+	`, groupID).Scan(
+		&group.ID, &group.TelegramChatID, &group.Title, &group.Type,
+		&group.CreatedAt, &group.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &group, nil
+}
+
+// GetGroupMembers returns everyone registered in a group together with the
+// numeric id needed to message them directly.
+func (db *DB) GetGroupMembers(groupID int64) ([]models.GroupMember, error) {
+	rows, err := db.Query(`
+		SELECT ug.user_id, u.telegram_id, ug.name, ug.role, ug.sessions_owed
+		FROM user_groups ug
+		JOIN users u ON u.id = ug.user_id
+		WHERE ug.group_id = $1
+		ORDER BY ug.name
+	`, groupID)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var members []models.GroupMember
+	for rows.Next() {
+		var m models.GroupMember
+		err := rows.Scan(&m.UserID, &m.TelegramID, &m.Name, &m.Role, &m.SessionsOwed)
+		if err != nil {
+			return nil, err
+		}
+		members = append(members, m)
+	}
+
+	return members, nil
 }
 
 func (db *DB) GetAllGroups() ([]models.Group, error) {
