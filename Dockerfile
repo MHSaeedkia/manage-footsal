@@ -1,5 +1,4 @@
-FROM golang:1.25.7-alpine AS builder
-
+FROM docker.arvancloud.ir/golang:1.25.7-alpine AS builder
 WORKDIR /build
 
 # Install build dependencies
@@ -16,10 +15,8 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bot ./cmd/bot
 
 # Final stage
-FROM alpine:latest
-
+FROM docker.arvancloud.ir/alpine:latest
 RUN apk --no-cache add ca-certificates tzdata
-
 WORKDIR /app
 
 # Copy binary from builder
@@ -30,5 +27,4 @@ COPY --from=builder /build/migrations ./migrations
 RUN mkdir -p /app/logs
 
 EXPOSE 8080
-
 CMD ["./bot"]
