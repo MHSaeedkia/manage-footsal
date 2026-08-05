@@ -16,7 +16,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bot ./cmd/bot
 
 # Final stage
 FROM docker.arvancloud.ir/alpine:latest
-RUN apk --no-cache add ca-certificates tzdata
+
+# Use ArvanCloud alpine mirror instead of dl-cdn.alpinelinux.org
+# (dl-cdn is blocked/filtered on this server, causing TLS handshake failures)
+RUN ALPINE_VERSION=$(cat /etc/alpine-release | cut -d'.' -f1,2) && \
+    sed -i "s#https://dl-cdn.alpinelinux.org/alpine/v[0-9.]*#https://mirror.arvancloud.ir/alpine/v${ALPINE_VERSION}#g" /etc/apk/repositories && \
+    cat /etc/apk/repositories && \
+    apk update && \
+    apk --no-cache add ca-certificates tzdata
+
 WORKDIR /app
 
 # Copy binary from builder
