@@ -362,6 +362,62 @@ func (db *DB) GetOpenEvents(groupID int64) ([]models.Event, error) {
 	return events, nil
 }
 
+// GetEvents returns the most recent events of a group, closed ones included.
+// Admins need closed events too, because they may still override a member there.
+func (db *DB) GetEvents(groupID int64, limit int) ([]models.Event, error) {
+	rows, err := db.Query(`
+		SELECT id, group_id, created_by, month, session_date, capacity,
+		       group_message_id, is_closed, created_at, updated_at
+		FROM events
+		WHERE group_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, groupID, limit)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []models.Event
+	for rows.Next() {
+		var e models.Event
+		var groupMessageID sql.NullInt64
+
+		err := rows.Scan(
+			&e.ID, &e.GroupID, &e.CreatedBy, &e.Month, &e.SessionDate, &e.Capacity,
+			&groupMessageID, &e.IsClosed, &e.CreatedAt, &e.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		e.GroupMessageID = int(groupMessageID.Int64)
+		events = append(events, e)
+	}
+
+	return events, nil
+}
+
+func (db *DB) GetUserByID(userID int64) (*models.User, error) {
+	var user models.User
+
+	err := db.QueryRow(`
+		SELECT id, telegram_id, username, first_name, last_name, is_bot, created_at, updated_at
+		FROM users
+		WHERE id = $1
+	`, userID).Scan(
+		&user.ID, &user.TelegramID, &user.Username, &user.FirstName,
+		&user.LastName, &user.IsBot, &user.CreatedAt, &user.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 func (db *DB) CloseEvent(eventID int64) error {
 	_, err := db.Exec(`
 		UPDATE events
@@ -433,6 +489,110 @@ func (db *DB) GetEventAnswers(eventID int64) ([]models.EventAnswer, error) {
 	}
 
 	return answers, nil
+}
+
+// Guest operations. A guest belongs to a single event and costs the member who
+// added them one session at that member's own rate. The guest row and the charge
+// are written in one transaction so the board can never disagree with the money.
+func (db *DB) AddEventGuest(eventID, addedBy, groupID int64, name string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		INSERT INTO event_guests (event_id, name, added_by)
+		VALUES ($1, $2, $3)
+	`, eventID, name, addedBy); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE user_groups
+		SET sessions_owed = sessions_owed + 1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = $1 AND group_id = $2
+	`, addedBy, groupID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) GetEventGuestByID(guestID int64) (*models.EventGuest, error) {
+	var g models.EventGuest
+
+	err := db.QueryRow(`
+		SELECT id, event_id, name, added_by, created_at
+		FROM event_guests
+		WHERE id = $1
+	`, guestID).Scan(&g.ID, &g.EventID, &g.Name, &g.AddedBy, &g.CreatedAt)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &g, nil
+}
+
+func (db *DB) GetEventGuests(eventID int64) ([]models.EventGuest, error) {
+	rows, err := db.Query(`
+		SELECT id, event_id, name, added_by, created_at
+		FROM event_guests
+		WHERE event_id = $1
+		ORDER BY created_at
+	`, eventID)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var guests []models.EventGuest
+	for rows.Next() {
+		var g models.EventGuest
+		if err := rows.Scan(&g.ID, &g.EventID, &g.Name, &g.AddedBy, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		guests = append(guests, g)
+	}
+
+	return guests, nil
+}
+
+// DeleteEventGuest removes a guest and gives the session back to whoever added
+// them. The DELETE ... RETURNING is what makes a double tap safe: the second call
+// deletes no row, so no second refund happens.
+func (db *DB) DeleteEventGuest(guestID, groupID int64) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var addedBy int64
+	err = tx.QueryRow(`
+		DELETE FROM event_guests WHERE id = $1 RETURNING added_by
+	`, guestID).Scan(&addedBy)
+
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE user_groups
+		SET sessions_owed = sessions_owed - 1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = $1 AND group_id = $2
+	`, addedBy, groupID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (db *DB) GetGroupByID(groupID int64) (*models.Group, error) {

@@ -175,6 +175,9 @@ func (b *Bot) MainMenuKeyboard(userID, groupID int64, isAdmin bool) tgbotapi.Inl
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData("💰 صورتحساب", fmt.Sprintf("invoice:%d", groupID)),
 		})
+		rows = append(rows, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("🧑‍🤝‍🧑 مهمان سانس", fmt.Sprintf("guests:%d", groupID)),
+		})
 	}
 
 	if isAdmin {
@@ -186,6 +189,9 @@ func (b *Bot) MainMenuKeyboard(userID, groupID int64, isAdmin bool) tgbotapi.Inl
 		})
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData("🏟 ایجاد سانس", fmt.Sprintf("new_event:%d", groupID)),
+		})
+		rows = append(rows, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("👥 وضعیت اعضا", fmt.Sprintf("members:%d", groupID)),
 		})
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData("🔒 بستن سانس", fmt.Sprintf("close_event:%d", groupID)),

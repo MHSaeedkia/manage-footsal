@@ -63,8 +63,9 @@ func buildInvoiceText(name string, role models.UserRole, sessions int, rate floa
 	)
 }
 
-// buildEventBoard fills the template with the present/absent lists.
-func buildEventBoard(event *models.Event, answers []models.EventAnswer) string {
+// buildEventBoard fills the template with the present/absent lists. Guests are
+// listed after the members, inside the present list, and marked as guests.
+func buildEventBoard(event *models.Event, answers []models.EventAnswer, guests []models.EventGuest) string {
 	var present, absent []string
 	for _, a := range answers {
 		if a.Response == models.ResponsePresent {
@@ -72,6 +73,10 @@ func buildEventBoard(event *models.Event, answers []models.EventAnswer) string {
 		} else {
 			absent = append(absent, fmt.Sprintf("%d- %s", len(absent)+1, escapeMarkdown(a.Name)))
 		}
+	}
+
+	for _, g := range guests {
+		present = append(present, fmt.Sprintf("%d- %s (مهمان)", len(present)+1, escapeMarkdown(g.Name)))
 	}
 
 	board := fmt.Sprintf(eventTemplate,
@@ -116,7 +121,12 @@ func renderEventBoard(b *bot.Bot, event *models.Event) (string, error) {
 		return "", err
 	}
 
-	return buildEventBoard(event, answers), nil
+	guests, err := b.DB.GetEventGuests(event.ID)
+	if err != nil {
+		return "", err
+	}
+
+	return buildEventBoard(event, answers, guests), nil
 }
 
 // refreshEventBoard rewrites the group message so it matches the database.
@@ -356,12 +366,13 @@ func handleRSVPCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []st
 		b.AnswerCallbackQuery(callback.ID, "غیبت شما ثبت شد.")
 	}
 
-	sendSessionBill(b, callback.From.ID, user.ID, event, response)
+	sendSessionBill(b, callback.From.ID, user.ID, event, response, "")
 }
 
 // sendSessionBill tells the member what this session cost them and where their
-// total stands now.
-func sendSessionBill(b *bot.Bot, chatID, userID int64, event *models.Event, response models.EventResponseType) {
+// total stands now. notice is an extra line put on top, used when an admin
+// changed the status instead of the member themselves.
+func sendSessionBill(b *bot.Bot, chatID, userID int64, event *models.Event, response models.EventResponseType, notice string) {
 	ug, err := b.DB.GetUserGroup(userID, event.GroupID)
 	if err != nil {
 		zap.L().Error("Error getting user group for bill", zap.Int64("user_id", userID), zap.Error(err))
@@ -381,7 +392,7 @@ func sendSessionBill(b *bot.Bot, chatID, userID int64, event *models.Event, resp
 		sessionCost = rate
 	}
 
-	text := fmt.Sprintf(
+	text := notice + fmt.Sprintf(
 		"🧾 *صورتحساب این سانس*\n\n"+
 			"سانس: %s %s\n"+
 			"وضعیت شما: %s\n"+

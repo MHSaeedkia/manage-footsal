@@ -38,10 +38,15 @@ whenever the group has at least one member.
 
 ## 0. A session can be charged twice — accepted by the user
 
-Events and `/attendance` both add to `sessions_owed` and know nothing about each
-other. Tapping ✅ میام **and** being listed in `/attendance` for the same session
-charges the person twice, silently. The user was told this and chose to keep both
-paths. Only fixable by hand via تسویه حساب. See `events-feature.md`.
+`/attendance` adds to `sessions_owed` and knows nothing about events. Tapping
+✅ میام **and** being listed in `/attendance` for the same session charges the
+person twice, silently. The user was told this and chose to keep both paths. Only
+fixable by hand via تسویه حساب. See `events-feature.md`.
+
+The member's own buttons and the admin override (`وضعیت اعضا`) are **safe** with
+each other — both go through `event_responses` and `sessionDelta`, so they cannot
+double-charge. `/attendance` is the odd one out. Prefer the admin override; see
+`admin-member-override.md`.
 
 ## 3. Report prints raw names, unescaped, in Markdown mode — STILL OPEN
 

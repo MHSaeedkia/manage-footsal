@@ -83,8 +83,62 @@ func TestBuildEventBoard(t *testing.T) {
 🔻 غایبین:
 1- حسین`
 
-	if got := buildEventBoard(event, answers); got != want {
+	if got := buildEventBoard(event, answers, nil); got != want {
 		t.Errorf("buildEventBoard() mismatch\ngot:\n%s\n\nwant:\n%s", got, want)
+	}
+}
+
+// Guests are appended to the present list, keep the numbering running, and are
+// labelled so the group can tell them apart from members.
+func TestBuildEventBoardWithGuests(t *testing.T) {
+	event := &models.Event{Month: "مرداد", SessionDate: "جمعه ۱۵", Capacity: 14}
+	answers := []models.EventAnswer{
+		{Name: "علی", Response: models.ResponsePresent},
+		{Name: "حسین", Response: models.ResponseAbsent},
+		{Name: "سارا", Response: models.ResponsePresent},
+	}
+	guests := []models.EventGuest{
+		{Name: "رضا"},
+		{Name: "محمد"},
+	}
+
+	want := `🔹 حاضرین :
+1- علی
+2- سارا
+3- رضا (مهمان)
+4- محمد (مهمان)
+🔻 غایبین:
+1- حسین`
+
+	if got := buildEventBoard(event, answers, guests); !contains(got, want) {
+		t.Errorf("guest lines wrong\ngot:\n%s\n\nwant to contain:\n%s", got, want)
+	}
+}
+
+// A session with only guests and nobody else must still number from 1.
+func TestBuildEventBoardGuestsOnly(t *testing.T) {
+	event := &models.Event{Month: "مرداد", SessionDate: "جمعه ۱۵", Capacity: 14}
+	guests := []models.EventGuest{{Name: "رضا"}}
+
+	want := `🔹 حاضرین :
+1- رضا (مهمان)
+🔻 غایبین:
+`
+
+	if got := buildEventBoard(event, nil, guests); !contains(got, want) {
+		t.Errorf("guests-only board wrong\ngot:\n%s\n\nwant to contain:\n%s", got, want)
+	}
+}
+
+// Guest names are typed by an admin, so they need the same Markdown escaping as
+// member names or the whole board stops rendering.
+func TestBuildEventBoardEscapesGuestNames(t *testing.T) {
+	event := &models.Event{Month: "مرداد", SessionDate: "جمعه ۱۵", Capacity: 14}
+	guests := []models.EventGuest{{Name: "reza_*x*"}}
+
+	got := buildEventBoard(event, nil, guests)
+	if want := "1- reza\\_\\*x\\* (مهمان)"; !contains(got, want) {
+		t.Errorf("guest name was not escaped, want %q in:\n%s", want, got)
 	}
 }
 
@@ -106,7 +160,7 @@ func TestBuildEventBoardEmptyLists(t *testing.T) {
 🔻 غایبین:
 `
 
-	if got := buildEventBoard(event, nil); got != want {
+	if got := buildEventBoard(event, nil, nil); got != want {
 		t.Errorf("buildEventBoard() with no answers mismatch\ngot:\n%s\n\nwant:\n%s", got, want)
 	}
 }
@@ -114,7 +168,7 @@ func TestBuildEventBoardEmptyLists(t *testing.T) {
 func TestBuildEventBoardClosed(t *testing.T) {
 	event := &models.Event{Month: "مرداد", SessionDate: "جمعه ۱۵", Capacity: 14, IsClosed: true}
 
-	got := buildEventBoard(event, nil)
+	got := buildEventBoard(event, nil, nil)
 	if want := "🔒 اعلام حضور بسته شد."; got[len(got)-len(want):] != want {
 		t.Errorf("closed board should end with the closed notice, got:\n%s", got)
 	}
@@ -128,7 +182,7 @@ func TestBuildEventBoardEscapesNames(t *testing.T) {
 		{Name: "ali_*star*", Response: models.ResponsePresent},
 	}
 
-	got := buildEventBoard(event, answers)
+	got := buildEventBoard(event, answers, nil)
 	if want := "1- ali\\_\\*star\\*"; !contains(got, want) {
 		t.Errorf("name was not escaped, want %q in:\n%s", want, got)
 	}

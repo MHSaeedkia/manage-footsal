@@ -93,6 +93,8 @@ func HandleMessage(b *bot.Bot, message *tgbotapi.Message) {
 		handleEventDateInput(b, message, state)
 	case "awaiting_event_capacity":
 		handleEventCapacityInput(b, message, state)
+	case "awaiting_guest_name":
+		handleGuestNameInput(b, message, state)
 	default:
 		b.ClearState(message.From.ID)
 	}
@@ -277,6 +279,22 @@ func HandleCallbackQuery(b *bot.Bot, callback *tgbotapi.CallbackQuery) {
 		handleDoCloseEventCallback(b, callback, parts)
 	case "bill_all":
 		handleBillAllCallback(b, callback, parts)
+	case "guests":
+		handleGuestsCallback(b, callback, parts)
+	case "guest_menu":
+		handleGuestMenuCallback(b, callback, parts)
+	case "add_guest":
+		handleAddGuestCallback(b, callback, parts)
+	case "del_guest":
+		handleDeleteGuestCallback(b, callback, parts)
+	case "members":
+		handleMembersCallback(b, callback, parts)
+	case "mem_event":
+		handleMemberEventCallback(b, callback, parts)
+	case "mem_pick":
+		handleMemberPickCallback(b, callback, parts)
+	case "mem_set":
+		handleMemberSetCallback(b, callback, parts)
 	case "back":
 		handleBackCallback(b, callback, parts)
 	}

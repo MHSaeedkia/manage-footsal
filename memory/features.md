@@ -12,9 +12,11 @@ Main menu buttons ([internal/bot/bot.go:107](../internal/bot/bot.go#L107)):
 | 📝 ثبت نام (register) | `register:<gid>` | not-yet-registered | ask name → ask role → insert `user_groups` |
 | ✏️ ویرایش مشخصات (edit) | `edit:<gid>` | registered | same flow, overwrites name + role |
 | 💰 صورتحساب (invoice) | `invoice:<gid>` | registered | shows name, role, session count, rate, total debt |
+| 🧑‍🤝‍🧑 مهمان سانس (guests) | `guests:<gid>` | registered | add/remove guests on an open session; each guest costs the adder one session |
 | 💵 تعیین نرخ (set rates) | `set_rates:<gid>` | admin | pick a role → type a number → upsert into `rates` |
 | ✅ تسویه حساب کاربر (settle) | `settle:<gid>` | admin | list users → pick one → type session count → subtract |
 | 🏟 ایجاد سانس (new event) | `new_event:<gid>` | admin | month → date → capacity, then post board + invite everyone |
+| 👥 وضعیت اعضا (member status) | `members:<gid>` | admin | set any member حاضر/غایب for a session, closed ones included |
 | 🔒 بستن سانس (close event) | `close_event:<gid>` | admin | pick an open event → no more answers allowed |
 | 📤 ارسال صورتحساب به همه | `bill_all:<gid>` | admin | DM every member their invoice |
 

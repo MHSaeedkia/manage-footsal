@@ -16,13 +16,28 @@
       Default `bale` keeps old behaviour. Wired into `.env.example`, `docker-compose.yml`
       and README. Bad values fail at boot with a clear error.
 
+- [x] Guests on a session — see `memory/guests-feature.md`. Migration 008.
+      Any registered member adds/removes a name in PV; it shows in the group
+      board's present list as `(مهمان)`. One session only, no account.
+      **Each guest costs the member who added them one session, at that member's
+      own role rate.** No separate guest role — the user cancelled that idea, so
+      `/report`, settlement and the invoice all stayed unchanged.
+
+- [x] Admin sets a member's حاضر/غایب for a session from PV — see
+      `memory/admin-member-override.md`. No migration. Shares `sessionDelta` with
+      the member's own buttons, so it is idempotent and cannot charge differently.
+      Works on closed sessions; the member is notified.
+
 Nothing is committed yet — everything is working-tree only on `feat-v2`.
 
 ## Not verified
-- [ ] **Migrations 006/007 still need a clean run.** First attempt crash-looped
+- [ ] **Migrations 006/007/008 still need a clean run.** First attempt crash-looped
       because they were numbered 005/006 and version 5 was already burned by a
       deleted migration — see `memory/migration-numbering.md`. Renumbered to
       006/007; confirm `docker-compose up` now applies both.
+- [ ] Guest money (+1 on add, -1 on remove) has **no automated test** — it is SQL
+      in a transaction and needs a live database. Verify by hand: add a guest,
+      check صورتحساب went up by one session, remove it, check it went back down.
 - [ ] The whole event flow is untested against a live Bale bot. Only `sessionDelta`
       and the board rendering have unit tests (`internal/handlers/handlers_event_test.go`).
 - [ ] `PLATFORM=telegram` has never been run against the real Telegram API. Only the
