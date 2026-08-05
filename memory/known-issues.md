@@ -48,6 +48,39 @@ each other — both go through `event_responses` and `sessionDelta`, so they can
 double-charge. `/attendance` is the odd one out. Prefer the admin override; see
 `admin-member-override.md`.
 
+## 0b. `Forbidden: permission_denied` when posting the event board — OPEN
+
+Seen in production 2026-08-05. Every failure was a send **or** edit aimed at the
+group; private messages were fine.
+
+The bot targets `groups.telegram_chat_id` of `event.GroupID`. That group comes from
+`HandleStart`, which picks **`allGroups[0]`** — and `GetAllGroups` orders by
+`created_at DESC`, so it is simply the **newest group row in the whole database**,
+not a group the user chose. See `#7` below.
+
+Nothing ever deletes a `groups` row, so a group the bot was removed from stays in
+the table forever and can still be the newest. That makes stale group rows the
+prime suspect whenever the group side fails but private chats work.
+
+Checks, in order:
+
+```sql
+SELECT id, telegram_chat_id, title, created_at FROM groups ORDER BY created_at DESC;
+SELECT id, group_id, month, session_date, group_message_id FROM events ORDER BY id;
+```
+
+Then confirm the bot is still a member of that exact chat and may post there (on
+Bale a group can be set so only admins send messages).
+
+Note the timeline in the reported logs: event 1 had a non-zero `group_message_id`,
+and `refreshEventBoard` returns early when that is 0 — so event 1 **did** post
+successfully once. The bot lost group access after that, it was never missing.
+
+The board post failure used to be **invisible to the admin** — they saw
+"✅ سانس ایجاد شد" either way. Fixed: `publishEvent` now returns
+`(invited, groupTitle, posted)` and the confirmation names the target group and
+warns when the board did not land.
+
 ## 3. Report prints raw names, unescaped, in Markdown mode — STILL OPEN
 
 `/report` sends with `SendMessageWithMarkdown`, but the names are not escaped. A

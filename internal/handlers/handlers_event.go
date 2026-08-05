@@ -224,36 +224,54 @@ func handleEventCapacityInput(b *bot.Bot, message *tgbotapi.Message, state *mode
 		return
 	}
 
-	invited := publishEvent(b, event)
+	invited, groupTitle, posted := publishEvent(b, event)
 
-	b.SendMessage(message.Chat.ID, fmt.Sprintf(
+	text := fmt.Sprintf(
 		"✅ سانس ایجاد شد.\n\n"+
 			"ماه: %s\n"+
 			"تاریخ: %s\n"+
 			"ظرفیت: %d نفر\n"+
+			"گروه: %s\n"+
 			"دعوت ارسال شده برای: %d نفر",
-		month, sessionDate, capacity, invited), nil)
+		month, sessionDate, capacity, groupTitle, invited)
+
+	if !posted {
+		text += "\n\n⚠️ تابلوی سانس در گروه «" + groupTitle + "» ارسال نشد.\n" +
+			"بررسی کنید که ربات هنوز عضو همان گروه است و اجازه ارسال پیام دارد.\n" +
+			"اعلام حضور کار می‌کند، ولی لیست در گروه به‌روز نمی‌شود."
+	}
+
+	b.SendMessage(message.Chat.ID, text, nil)
 }
 
 // publishEvent posts the board in the group and sends the buttons to every
-// registered member. It returns how many members were reached.
-func publishEvent(b *bot.Bot, event *models.Event) int {
+// registered member. It reports how many members were reached, which group it
+// aimed at, and whether the board actually made it into that group — the admin
+// needs all three, because a failed board post is otherwise invisible to them.
+func publishEvent(b *bot.Bot, event *models.Event) (invited int, groupTitle string, posted bool) {
 	group, err := b.DB.GetGroupByID(event.GroupID)
 	if err != nil {
 		zap.L().Error("Error getting group for new event", zap.Int64("event_id", event.ID), zap.Error(err))
-		return 0
+		return 0, "", false
 	}
+
+	groupTitle = group.Title
 
 	board, err := renderEventBoard(b, event)
 	if err != nil {
 		zap.L().Error("Error rendering new event board", zap.Int64("event_id", event.ID), zap.Error(err))
-		return 0
+		return 0, groupTitle, false
 	}
 
 	sent, err := b.SendMarkdownMessage(group.TelegramChatID, board, nil)
 	if err != nil {
-		zap.L().Error("Error posting event board to group", zap.Int64("event_id", event.ID), zap.Error(err))
+		zap.L().Error("Error posting event board to group",
+			zap.Int64("event_id", event.ID),
+			zap.Int64("chat_id", group.TelegramChatID),
+			zap.String("group_title", group.Title),
+			zap.Error(err))
 	} else {
+		posted = true
 		event.GroupMessageID = sent.MessageID
 		if err := b.DB.SetEventGroupMessageID(event.ID, sent.MessageID); err != nil {
 			zap.L().Error("Error saving event message id", zap.Int64("event_id", event.ID), zap.Error(err))
@@ -263,7 +281,7 @@ func publishEvent(b *bot.Bot, event *models.Event) int {
 	members, err := b.DB.GetGroupMembers(event.GroupID)
 	if err != nil {
 		zap.L().Error("Error getting group members", zap.Int64("group_id", event.GroupID), zap.Error(err))
-		return 0
+		return 0, groupTitle, posted
 	}
 
 	invite := fmt.Sprintf(
@@ -276,7 +294,6 @@ func publishEvent(b *bot.Bot, event *models.Event) int {
 
 	keyboard := b.EventResponseKeyboard(event.ID)
 
-	invited := 0
 	for _, m := range members {
 		if _, err := b.SendMarkdownMessage(m.TelegramID, invite, keyboard); err != nil {
 			zap.L().Error("Error sending event invite",
@@ -286,7 +303,7 @@ func publishEvent(b *bot.Bot, event *models.Event) int {
 		invited++
 	}
 
-	return invited
+	return invited, groupTitle, posted
 }
 
 // Member answering the event

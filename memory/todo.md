@@ -30,11 +30,21 @@
 
 Nothing is committed yet — everything is working-tree only on `feat-v2`.
 
+## Open problem from production (2026-08-05)
+- [ ] `Forbidden: permission_denied` on every send/edit aimed at the **group**.
+      Private messages work fine. See `memory/known-issues.md` #0b for the SQL to
+      run and the reasoning. Prime suspect: `HandleStart` uses `allGroups[0]`,
+      which is just the newest group row in the whole DB, and stale group rows are
+      never deleted — so events may be aimed at a group the bot was removed from.
+- [x] Made the failure visible: the admin's confirmation now names the target
+      group and warns when the board did not reach it. It used to say
+      "✅ سانس ایجاد شد" even when the group post had failed.
+- [ ] Decide the real fix once the SQL says which chat is being targeted: either a
+      group picker (see the multi-group gap in `features.md`), or delete the
+      `groups` row when the bot is removed from a group.
+
 ## Not verified
-- [ ] **Migrations 006/007/008 still need a clean run.** First attempt crash-looped
-      because they were numbered 005/006 and version 5 was already burned by a
-      deleted migration — see `memory/migration-numbering.md`. Renumbered to
-      006/007; confirm `docker-compose up` now applies both.
+- [x] Migrations 006/007/008 applied cleanly on the server (deployed 2026-08-05).
 - [ ] Guest money (+1 on add, -1 on remove) has **no automated test** — it is SQL
       in a transaction and needs a live database. Verify by hand: add a guest,
       check صورتحساب went up by one session, remove it, check it went back down.
