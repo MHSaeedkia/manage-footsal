@@ -285,6 +285,8 @@ func HandleCallbackQuery(b *bot.Bot, callback *tgbotapi.CallbackQuery) {
 		handleGuestMenuCallback(b, callback, parts)
 	case "add_guest":
 		handleAddGuestCallback(b, callback, parts)
+	case "add_free_guest":
+		handleAddFreeGuestCallback(b, callback, parts)
 	case "del_guest":
 		handleDeleteGuestCallback(b, callback, parts)
 	case "members":

@@ -52,8 +52,9 @@ the type had leaked, the second attempt would have failed earlier with
 | 006 | `006_create_events.sql` | |
 | 007 | `007_create_event_responses.sql` | |
 | 008 | `008_create_event_guests.sql` | |
+| 009 | `009_add_event_guests_is_free.sql` | first migration to ALTER an existing table |
 
-Next new migration starts at **009**.
+Next new migration starts at **010**.
 
 An old database may still physically have the `attendance_records` table from
 version 5. Nothing reads it. Leave it alone unless asked — dropping it needs its

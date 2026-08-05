@@ -494,7 +494,7 @@ func (db *DB) GetEventAnswers(eventID int64) ([]models.EventAnswer, error) {
 // Guest operations. A guest belongs to a single event and costs the member who
 // added them one session at that member's own rate. The guest row and the charge
 // are written in one transaction so the board can never disagree with the money.
-func (db *DB) AddEventGuest(eventID, addedBy, groupID int64, name string) error {
+func (db *DB) AddEventGuest(eventID, addedBy, groupID int64, name string, isFree bool) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -502,19 +502,22 @@ func (db *DB) AddEventGuest(eventID, addedBy, groupID int64, name string) error 
 	defer tx.Rollback()
 
 	if _, err := tx.Exec(`
-		INSERT INTO event_guests (event_id, name, added_by)
-		VALUES ($1, $2, $3)
-	`, eventID, name, addedBy); err != nil {
+		INSERT INTO event_guests (event_id, name, added_by, is_free)
+		VALUES ($1, $2, $3, $4)
+	`, eventID, name, addedBy, isFree); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(`
-		UPDATE user_groups
-		SET sessions_owed = sessions_owed + 1,
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE user_id = $1 AND group_id = $2
-	`, addedBy, groupID); err != nil {
-		return err
+	// A free guest is recorded on the board but charged to nobody.
+	if !isFree {
+		if _, err := tx.Exec(`
+			UPDATE user_groups
+			SET sessions_owed = sessions_owed + 1,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = $1 AND group_id = $2
+		`, addedBy, groupID); err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()
@@ -524,10 +527,10 @@ func (db *DB) GetEventGuestByID(guestID int64) (*models.EventGuest, error) {
 	var g models.EventGuest
 
 	err := db.QueryRow(`
-		SELECT id, event_id, name, added_by, created_at
+		SELECT id, event_id, name, added_by, is_free, created_at
 		FROM event_guests
 		WHERE id = $1
-	`, guestID).Scan(&g.ID, &g.EventID, &g.Name, &g.AddedBy, &g.CreatedAt)
+	`, guestID).Scan(&g.ID, &g.EventID, &g.Name, &g.AddedBy, &g.IsFree, &g.CreatedAt)
 
 	if err != nil {
 		return nil, err
@@ -538,7 +541,7 @@ func (db *DB) GetEventGuestByID(guestID int64) (*models.EventGuest, error) {
 
 func (db *DB) GetEventGuests(eventID int64) ([]models.EventGuest, error) {
 	rows, err := db.Query(`
-		SELECT id, event_id, name, added_by, created_at
+		SELECT id, event_id, name, added_by, is_free, created_at
 		FROM event_guests
 		WHERE event_id = $1
 		ORDER BY created_at
@@ -552,7 +555,7 @@ func (db *DB) GetEventGuests(eventID int64) ([]models.EventGuest, error) {
 	var guests []models.EventGuest
 	for rows.Next() {
 		var g models.EventGuest
-		if err := rows.Scan(&g.ID, &g.EventID, &g.Name, &g.AddedBy, &g.CreatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.EventID, &g.Name, &g.AddedBy, &g.IsFree, &g.CreatedAt); err != nil {
 			return nil, err
 		}
 		guests = append(guests, g)
@@ -572,9 +575,10 @@ func (db *DB) DeleteEventGuest(guestID, groupID int64) error {
 	defer tx.Rollback()
 
 	var addedBy int64
+	var isFree bool
 	err = tx.QueryRow(`
-		DELETE FROM event_guests WHERE id = $1 RETURNING added_by
-	`, guestID).Scan(&addedBy)
+		DELETE FROM event_guests WHERE id = $1 RETURNING added_by, is_free
+	`, guestID).Scan(&addedBy, &isFree)
 
 	if err == sql.ErrNoRows {
 		return nil
@@ -583,13 +587,16 @@ func (db *DB) DeleteEventGuest(guestID, groupID int64) error {
 		return err
 	}
 
-	if _, err := tx.Exec(`
-		UPDATE user_groups
-		SET sessions_owed = sessions_owed - 1,
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE user_id = $1 AND group_id = $2
-	`, addedBy, groupID); err != nil {
-		return err
+	// Only refund what was actually charged.
+	if !isFree {
+		if _, err := tx.Exec(`
+			UPDATE user_groups
+			SET sessions_owed = sessions_owed - 1,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = $1 AND group_id = $2
+		`, addedBy, groupID); err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()

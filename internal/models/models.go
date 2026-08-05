@@ -103,10 +103,12 @@ type EventResponse struct {
 // EventGuest is someone with no account who an admin added to a single session.
 // Guests are name-only: they carry no role, no rate and no debt.
 type EventGuest struct {
-	ID        int64     `db:"id"`
-	EventID   int64     `db:"event_id"`
-	Name      string    `db:"name"`
-	AddedBy   int64     `db:"added_by"`
+	ID      int64  `db:"id"`
+	EventID int64  `db:"event_id"`
+	Name    string `db:"name"`
+	AddedBy int64  `db:"added_by"`
+	// IsFree guests cost nobody anything. Only admins can create them.
+	IsFree    bool      `db:"is_free"`
 	CreatedAt time.Time `db:"created_at"`
 }
 

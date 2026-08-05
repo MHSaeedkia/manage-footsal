@@ -45,6 +45,11 @@ Nothing is committed yet — everything is working-tree only on `feat-v2`.
 
 ## Not verified
 - [x] Migrations 006/007/008 applied cleanly on the server (deployed 2026-08-05).
+- [ ] **Migration 009 (`event_guests.is_free`) has not been run yet.** It is the
+      first migration that ALTERs an existing table. Additive with `DEFAULT FALSE`,
+      so existing guest rows stay "paid", which is correct.
+- [ ] Free guests untested end to end. Check by hand: add a free guest → صورتحساب
+      must NOT change; remove it → صورتحساب must still not change.
 - [ ] Guest money (+1 on add, -1 on remove) has **no automated test** — it is SQL
       in a transaction and needs a live database. Verify by hand: add a guest,
       check صورتحساب went up by one session, remove it, check it went back down.

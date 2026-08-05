@@ -14,7 +14,35 @@ name in private chat and it appears in the group board's present list marked
   on the adder's `user_groups` row. Removing gives it back (`-1`).
 - **Charged at the adder's own role rate.** There is deliberately **no guest role
   and no guest price** — see the decision below.
+- **Free guests exist and are admin-only.** `event_guests.is_free` (migration 009).
+  A free guest is on the board but charged to nobody, and removing one refunds
+  nothing. See below.
 - **Removable**, by the person who added them, or by any admin.
+
+## Free guests (added 2026-08-05, migration 009)
+
+Admins get a second button, `🎁 افزودن مهمان رایگان`, next to the normal
+`➕ افزودن مهمان (با هزینه)`. Ordinary members only ever see the paid button.
+
+Three judgement calls made while building, none of them stated by the user:
+
+1. **Free is admin-only.** A member cannot give themselves a free guest.
+2. **The group board shows free and paid guests identically** — both are just
+   `(مهمان)`. The group does not need to know who paid.
+3. **Free is marked only in the management menu**, as `❌ حذف رضا (رایگان)`, where
+   it actually matters.
+
+The admin check is done twice: when the button is tapped, and again when the name
+arrives. The second one matters because `is_free` rides in the conversation state
+between those two moments.
+
+Money handling is inside the same transactions as before — `AddEventGuest` skips
+the `UPDATE` when `is_free`, and `DeleteEventGuest` reads `is_free` back out of
+`DELETE ... RETURNING added_by, is_free` so it **only refunds what was actually
+charged**. Getting that wrong would hand out free sessions on every deletion.
+
+Guests created before migration 009 were all charged, so the column defaults to
+`FALSE`, which is correct for every existing row.
 
 ## Decision: no separate guest role (2026-08-04)
 

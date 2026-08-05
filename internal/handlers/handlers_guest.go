@@ -100,21 +100,35 @@ func showGuestMenu(b *bot.Bot, chatID int64, messageID int, eventID, groupID, vi
 
 	var rows [][]tgbotapi.InlineKeyboardButton
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData("➕ افزودن مهمان", fmt.Sprintf("add_guest:%d:%d", eventID, groupID)),
+		tgbotapi.NewInlineKeyboardButtonData("➕ افزودن مهمان (با هزینه)", fmt.Sprintf("add_guest:%d:%d", eventID, groupID)),
 	})
 
-	mine := 0
+	// Only an admin may add someone that nobody pays for.
+	if isAdmin {
+		rows = append(rows, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("🎁 افزودن مهمان رایگان", fmt.Sprintf("add_free_guest:%d:%d", eventID, groupID)),
+		})
+	}
+
+	mine, free := 0, 0
 	for _, g := range guests {
 		if g.AddedBy == viewerID {
 			mine++
 		}
+		if g.IsFree {
+			free++
+		}
 		if g.AddedBy != viewerID && !isAdmin {
 			continue
 		}
+
+		label := fmt.Sprintf("❌ حذف %s", g.Name)
+		if g.IsFree {
+			label += " (رایگان)"
+		}
+
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(
-				fmt.Sprintf("❌ حذف %s", g.Name),
-				fmt.Sprintf("del_guest:%d:%d:%d", g.ID, eventID, groupID)),
+			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("del_guest:%d:%d:%d", g.ID, eventID, groupID)),
 		})
 	}
 
@@ -123,8 +137,9 @@ func showGuestMenu(b *bot.Bot, chatID int64, messageID int, eventID, groupID, vi
 	})
 
 	text := fmt.Sprintf(
-		"سانس %s %s\n\nکل مهمان‌ها: %d\nمهمان‌های شما: %d\n\nهر مهمان یک جلسه به حساب شما اضافه می‌کند.",
-		event.SessionDate, event.Month, len(guests), mine)
+		"سانس %s %s\n\nکل مهمان‌ها: %d\nاز این تعداد رایگان: %d\nمهمان‌های شما: %d\n\n"+
+			"هر مهمان با هزینه، یک جلسه به حساب اضافه‌کننده اضافه می‌کند. مهمان رایگان برای هیچ‌کس هزینه ندارد.",
+		event.SessionDate, event.Month, len(guests), free, mine)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 	b.EditMessage(chatID, messageID, text, &keyboard)
@@ -155,6 +170,14 @@ func handleGuestMenuCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts
 }
 
 func handleAddGuestCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []string) {
+	startAddGuest(b, callback, parts, false)
+}
+
+func handleAddFreeGuestCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []string) {
+	startAddGuest(b, callback, parts, true)
+}
+
+func startAddGuest(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts []string, isFree bool) {
 	if len(parts) < 3 {
 		return
 	}
@@ -173,12 +196,23 @@ func handleAddGuestCallback(b *bot.Bot, callback *tgbotapi.CallbackQuery, parts 
 		return
 	}
 
+	if isFree && !isAdminFor(b, callback.From.ID, groupID) {
+		b.AnswerCallbackQuery(callback.ID, "فقط ادمین می‌تواند مهمان رایگان اضافه کند.")
+		return
+	}
+
 	b.SetState(callback.From.ID, "awaiting_guest_name", map[string]interface{}{
 		"event_id": eventID,
 		"group_id": groupID,
+		"is_free":  isFree,
 	})
 
-	b.EditMessage(callback.Message.Chat.ID, callback.Message.MessageID, "نام مهمان را وارد کنید:", nil)
+	prompt := "نام مهمان را وارد کنید:\n(یک جلسه به حساب شما اضافه می‌شود)"
+	if isFree {
+		prompt = "نام مهمان رایگان را وارد کنید:\n(برای هیچ‌کس هزینه‌ای ثبت نمی‌شود)"
+	}
+
+	b.EditMessage(callback.Message.Chat.ID, callback.Message.MessageID, prompt, nil)
 }
 
 func handleGuestNameInput(b *bot.Bot, message *tgbotapi.Message, state *models.UserState) {
@@ -190,8 +224,16 @@ func handleGuestNameInput(b *bot.Bot, message *tgbotapi.Message, state *models.U
 
 	eventID := state.TempData["event_id"].(int64)
 	groupID := state.TempData["group_id"].(int64)
+	isFree, _ := state.TempData["is_free"].(bool)
 
 	b.ClearState(message.From.ID)
+
+	// Re-check here as well: the state was set by a callback, but admin rights are
+	// what makes a free guest legal and they are cheap to confirm again.
+	if isFree && !isAdminFor(b, message.From.ID, groupID) {
+		b.SendMessage(message.Chat.ID, "فقط ادمین می‌تواند مهمان رایگان اضافه کند.", nil)
+		return
+	}
 
 	user, err := b.DB.GetUserByTelegramID(message.From.ID)
 	if err != nil {
@@ -200,7 +242,7 @@ func handleGuestNameInput(b *bot.Bot, message *tgbotapi.Message, state *models.U
 		return
 	}
 
-	if err := b.DB.AddEventGuest(eventID, user.ID, groupID, name); err != nil {
+	if err := b.DB.AddEventGuest(eventID, user.ID, groupID, name, isFree); err != nil {
 		zap.L().Error("Error adding guest", zap.Int64("event_id", eventID), zap.Error(err))
 		b.SendMessage(message.Chat.ID, "خطا در افزودن مهمان.", nil)
 		return
@@ -220,12 +262,17 @@ func handleGuestNameInput(b *bot.Bot, message *tgbotapi.Message, state *models.U
 		),
 	)
 
-	text := fmt.Sprintf("✅ مهمان «%s» اضافه شد.\nیک جلسه به حساب شما اضافه شد.", name)
+	var text string
+	if isFree {
+		text = fmt.Sprintf("🎁 مهمان رایگان «%s» اضافه شد.\nهیچ هزینه‌ای برای کسی ثبت نشد.", name)
+	} else {
+		text = fmt.Sprintf("✅ مهمان «%s» اضافه شد.\nیک جلسه به حساب شما اضافه شد.", name)
 
-	if ug, err := b.DB.GetUserGroup(user.ID, groupID); err == nil {
-		rate, _ := b.DB.GetRate(groupID, ug.Role)
-		text += fmt.Sprintf("\n\nمجموع جلسات شما: %d\nمجموع بدهی: %.0f تومان",
-			ug.SessionsOwed, float64(ug.SessionsOwed)*rate)
+		if ug, err := b.DB.GetUserGroup(user.ID, groupID); err == nil {
+			rate, _ := b.DB.GetRate(groupID, ug.Role)
+			text += fmt.Sprintf("\n\nمجموع جلسات شما: %d\nمجموع بدهی: %.0f تومان",
+				ug.SessionsOwed, float64(ug.SessionsOwed)*rate)
+		}
 	}
 
 	b.SendMessage(message.Chat.ID, text, keyboard)
